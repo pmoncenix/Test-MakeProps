@@ -50,6 +50,46 @@ describe("GET /user/get", () => {
   });
 });
 
+describe("GET /user/list", () => {
+  it("renvoie les utilisateurs et les métadonnées de pagination", async () => {
+    const firstPage = await request(app).get("/user/list").query({ page: 1, limit: 2 });
+    const secondPage = await request(app).get("/user/list").query({ page: 2, limit: 2 });
+
+    assert.equal(firstPage.status, 200);
+    assert.deepEqual(firstPage.body, {
+      users: [
+        { id: 1, name: "Alex Martin", email: "alex@example.com" },
+        { id: 2, name: "Camille Durand", email: "camille@example.com" },
+      ],
+      pagination: { page: 1, limit: 2, total: 3, totalPages: 2 },
+    });
+    assert.equal(secondPage.status, 200);
+    assert.deepEqual(secondPage.body, {
+      users: [{ id: 3, name: "Morgan Petit", email: "morgan@example.com" }],
+      pagination: { page: 2, limit: 2, total: 3, totalPages: 2 },
+    });
+  });
+
+  it("utilise les valeurs par défaut si aucun paramètre n’est fourni", async () => {
+    const response = await request(app).get("/user/list");
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.pagination.page, 1);
+    assert.equal(response.body.pagination.limit, 10);
+    assert.equal(response.body.pagination.total, 3);
+  });
+
+  it("renvoie 400 si les paramètres de pagination sont invalides", async () => {
+    const invalidPage = await request(app).get("/user/list").query({ page: 0 });
+    const excessiveLimit = await request(app).get("/user/list").query({ limit: 101 });
+
+    assert.equal(invalidPage.status, 400);
+    assert.equal(invalidPage.body.error.code, "INVALID_PAGINATION");
+    assert.equal(excessiveLimit.status, 400);
+    assert.equal(excessiveLimit.body.error.code, "INVALID_PAGINATION");
+  });
+});
+
 describe("PUT /user/update", () => {
   it("modifie et renvoie l’utilisateur", async () => {
     const response = await request(app)

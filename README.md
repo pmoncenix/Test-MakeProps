@@ -26,6 +26,14 @@ Invoke-RestMethod "http://localhost:3000/user/get?id=1"
 
 La réponse `200` contient `id`, `name` et `email`. Une requête sans identifiant ou avec un identifiant invalide renvoie `400`; un identifiant valide sans utilisateur correspondant renvoie `404`.
 
+## Lister les utilisateurs
+
+```powershell
+Invoke-RestMethod "http://localhost:3000/user/list?page=1&limit=10"
+```
+
+`page` commence à `1` et `limit` vaut `10` par défaut. La limite maximale est de `100` utilisateurs par page. La réponse contient `users` et `pagination` avec les champs `page`, `limit`, `total` et `totalPages`. Des paramètres invalides renvoient `400`.
+
 ## Modifier un utilisateur
 
 `PUT /user/update` utilise le même identifiant en query string. Les champs `name` et `email` sont requis dans le corps JSON :

@@ -9,6 +9,11 @@ export function createUsersRouter(userService: UserService): Router {
     response.status(200).json(user);
   });
 
+  router.get("/list", (request, response) => {
+    const result = userService.list(request.query.page, request.query.limit);
+    response.status(200).json(result);
+  });
+
   router.put("/update", (request, response) => {
     const user = userService.updateById(request.query.id, request.body);
     response.status(200).json(user);

@@ -5,3 +5,8 @@ export interface User {
 }
 
 export type UserUpdate = Pick<User, "name" | "email">;
+
+export interface UserPage {
+  users: User[];
+  total: number;
+}

@@ -48,6 +48,67 @@ export const openApiDocument = {
         },
       },
     },
+    "/user/list": {
+      get: {
+        summary: "Récupérer la liste paginée des utilisateurs",
+        tags: ["Users"],
+        parameters: [
+          {
+            name: "page",
+            in: "query",
+            required: false,
+            description: "Numéro de page (par défaut : 1).",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Nombre d’utilisateurs par page (par défaut : 10, maximum : 100).",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 10 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Page d’utilisateurs récupérée.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["users", "pagination"],
+                  properties: {
+                    users: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["id", "name", "email"],
+                        properties: {
+                          id: { type: "integer", example: 1 },
+                          name: { type: "string", example: "Alex Martin" },
+                          email: { type: "string", format: "email", example: "alex@example.com" },
+                        },
+                      },
+                    },
+                    pagination: {
+                      type: "object",
+                      required: ["page", "limit", "total", "totalPages"],
+                      properties: {
+                        page: { type: "integer", example: 1 },
+                        limit: { type: "integer", example: 10 },
+                        total: { type: "integer", example: 24 },
+                        totalPages: { type: "integer", example: 3 },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Paramètres de pagination invalides." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
+    },
     "/user/update": {
       put: {
         summary: "Modifier un utilisateur par son identifiant",

@@ -15,6 +15,30 @@ export class UserService {
     return user;
   }
 
+  list(rawPage: unknown, rawLimit: unknown): {
+    users: User[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  } {
+    const page = parsePaginationParameter(rawPage, 1, "page");
+    const limit = parsePaginationParameter(rawLimit, 10, "limit", 100);
+    const offset = (page - 1) * limit;
+
+    if (!Number.isSafeInteger(offset)) {
+      throw invalidPaginationError();
+    }
+
+    const result = this.userRepository.findPage(page, limit);
+    return {
+      users: result.users,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit),
+      },
+    };
+  }
+
   updateById(rawId: unknown, rawInput: unknown): User {
     const id = parseId(rawId);
     const update = parseUserUpdate(rawInput);
@@ -50,6 +74,38 @@ function parseId(rawId: unknown): number {
   }
 
   return id;
+}
+
+function parsePaginationParameter(
+  rawValue: unknown,
+  defaultValue: number,
+  parameterName: "page" | "limit",
+  maximum?: number,
+): number {
+  if (rawValue === undefined) return defaultValue;
+
+  if (typeof rawValue !== "string" || !/^[1-9]\d*$/.test(rawValue)) {
+    throw invalidPaginationError();
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isSafeInteger(value) || (maximum !== undefined && value > maximum)) {
+    throw invalidPaginationError();
+  }
+
+  if (parameterName === "limit" && value < 1) {
+    throw invalidPaginationError();
+  }
+
+  return value;
+}
+
+function invalidPaginationError(): AppError {
+  return new AppError(
+    400,
+    "INVALID_PAGINATION",
+    "Les paramètres page et limit doivent être des entiers positifs; limit ne peut pas dépasser 100.",
+  );
 }
 
 function parseUserUpdate(rawInput: unknown): UserUpdate {

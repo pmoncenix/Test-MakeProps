@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { UserEmailAlreadyInUseError } from "../../domain/errors/UserEmailAlreadyInUseError.js";
-import type { User, UserUpdate } from "../../domain/user.js";
+import type { User, UserPage, UserUpdate } from "../../domain/user.js";
 import type { UserRepository } from "../../users/userRepository.js";
 
 interface UserRow {
@@ -18,6 +18,18 @@ export class SqliteUserRepository implements UserRepository {
       .get(id) as UserRow | undefined;
 
     return row ?? null;
+  }
+
+  findPage(page: number, limit: number): UserPage {
+    const offset = (page - 1) * limit;
+    const users = this.database
+      .prepare("SELECT id, name, email FROM users ORDER BY id ASC LIMIT ? OFFSET ?")
+      .all(limit, offset) as UserRow[];
+    const { total } = this.database
+      .prepare("SELECT COUNT(*) AS total FROM users")
+      .get() as { total: number };
+
+    return { users, total };
   }
 
   updateById(id: number, user: UserUpdate): User | null {
