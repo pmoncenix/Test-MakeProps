@@ -90,6 +90,57 @@ describe("GET /user/list", () => {
   });
 });
 
+describe("GET /user/search", () => {
+  it("recherche par prénom, nom ou email", async () => {
+    const firstNameMatch = await request(app).get("/user/search").query({ q: "alex" });
+    const lastNameMatch = await request(app).get("/user/search").query({ q: "martin" });
+    const emailMatch = await request(app).get("/user/search").query({ q: "camille@example.com" });
+
+    assert.deepEqual(firstNameMatch.body.users.map((user: { id: number }) => user.id), [1]);
+    assert.deepEqual(lastNameMatch.body.users.map((user: { id: number }) => user.id), [1]);
+    assert.deepEqual(emailMatch.body.users.map((user: { id: number }) => user.id), [2]);
+  });
+
+  it("applique la pagination aux résultats de recherche", async () => {
+    const response = await request(app)
+      .get("/user/search")
+      .query({ q: "example.com", page: 2, limit: 1 });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, {
+      users: [{ id: 2, name: "Camille Durand", email: "camille@example.com" }],
+      pagination: { page: 2, limit: 1, total: 3, totalPages: 3 },
+    });
+  });
+
+  it("renvoie 400 si le terme ou la pagination est invalide", async () => {
+    const missingQuery = await request(app).get("/user/search");
+    const emptyQuery = await request(app).get("/user/search").query({ q: "  " });
+    const invalidPage = await request(app).get("/user/search").query({ q: "alex", page: 0 });
+
+    assert.equal(missingQuery.status, 400);
+    assert.equal(missingQuery.body.error.code, "INVALID_SEARCH_QUERY");
+    assert.equal(emptyQuery.status, 400);
+    assert.equal(emptyQuery.body.error.code, "INVALID_SEARCH_QUERY");
+    assert.equal(invalidPage.status, 400);
+    assert.equal(invalidPage.body.error.code, "INVALID_PAGINATION");
+  });
+
+  it("ignore la casse et les accents", async () => {
+    database.prepare("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")
+      .run(4, "Élodie Moreau", "elodie.moreau@example.com");
+
+    try {
+      const response = await request(app).get("/user/search").query({ q: "elodie" });
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.users.map((user: { id: number }) => user.id), [4]);
+    } finally {
+      database.prepare("DELETE FROM users WHERE id = ?").run(4);
+    }
+  });
+});
+
 describe("PUT /user/update", () => {
   it("modifie et renvoie l’utilisateur", async () => {
     const response = await request(app)

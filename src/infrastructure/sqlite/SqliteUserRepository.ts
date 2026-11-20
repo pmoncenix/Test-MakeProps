@@ -32,6 +32,30 @@ export class SqliteUserRepository implements UserRepository {
     return { users, total };
   }
 
+  searchPage(query: string, page: number, limit: number): UserPage {
+    const pattern = `%${escapeLikePattern(query)}%`;
+    const users = this.database
+      .prepare(`
+        SELECT id, name, email
+        FROM users
+        WHERE normalize_for_search(name) LIKE normalize_for_search(?) ESCAPE '!'
+          OR normalize_for_search(email) LIKE normalize_for_search(?) ESCAPE '!'
+        ORDER BY id ASC
+        LIMIT ? OFFSET ?
+      `)
+      .all(pattern, pattern, limit, (page - 1) * limit) as UserRow[];
+    const { total } = this.database
+      .prepare(`
+        SELECT COUNT(*) AS total
+        FROM users
+        WHERE normalize_for_search(name) LIKE normalize_for_search(?) ESCAPE '!'
+          OR normalize_for_search(email) LIKE normalize_for_search(?) ESCAPE '!'
+      `)
+      .get(pattern, pattern) as { total: number };
+
+    return { users, total };
+  }
+
   updateById(id: number, user: UserUpdate): User | null {
     try {
       this.database
@@ -62,4 +86,8 @@ function isUniqueConstraintError(error: unknown): boolean {
     && error !== null
     && "code" in error
     && error.code === "SQLITE_CONSTRAINT_UNIQUE";
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[!%_]/g, (character) => `!${character}`);
 }

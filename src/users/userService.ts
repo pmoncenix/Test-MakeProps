@@ -27,16 +27,23 @@ export class UserService {
       throw invalidPaginationError();
     }
 
-    const result = this.userRepository.findPage(page, limit);
-    return {
-      users: result.users,
-      pagination: {
-        page,
-        limit,
-        total: result.total,
-        totalPages: Math.ceil(result.total / limit),
-      },
-    };
+    return toPaginatedResponse(this.userRepository.findPage(page, limit), page, limit);
+  }
+
+  search(rawQuery: unknown, rawPage: unknown, rawLimit: unknown): {
+    users: User[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  } {
+    const query = parseSearchQuery(rawQuery);
+    const page = parsePaginationParameter(rawPage, 1, "page");
+    const limit = parsePaginationParameter(rawLimit, 10, "limit", 100);
+    const offset = (page - 1) * limit;
+
+    if (!Number.isSafeInteger(offset)) {
+      throw invalidPaginationError();
+    }
+
+    return toPaginatedResponse(this.userRepository.searchPage(query, page, limit), page, limit);
   }
 
   updateById(rawId: unknown, rawInput: unknown): User {
@@ -98,6 +105,46 @@ function parsePaginationParameter(
   }
 
   return value;
+}
+
+function parseSearchQuery(rawQuery: unknown): string {
+  if (typeof rawQuery !== "string") {
+    throw invalidSearchQueryError();
+  }
+
+  const query = rawQuery.trim();
+  if (query.length === 0 || query.length > 100) {
+    throw invalidSearchQueryError();
+  }
+
+  return query;
+}
+
+function invalidSearchQueryError(): AppError {
+  return new AppError(
+    400,
+    "INVALID_SEARCH_QUERY",
+    "Le paramètre q est obligatoire et doit contenir entre 1 et 100 caractères.",
+  );
+}
+
+function toPaginatedResponse(
+  result: { users: User[]; total: number },
+  page: number,
+  limit: number,
+): {
+  users: User[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+} {
+  return {
+    users: result.users,
+    pagination: {
+      page,
+      limit,
+      total: result.total,
+      totalPages: Math.ceil(result.total / limit),
+    },
+  };
 }
 
 function invalidPaginationError(): AppError {

@@ -10,6 +10,11 @@ export function openDatabase(databasePath: string): Database.Database {
   }
 
   const database = new Database(resolvedPath);
+  database.function(
+    "normalize_for_search",
+    { deterministic: true },
+    (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase(),
+  );
   database.pragma("foreign_keys = ON");
   database.exec(`
     CREATE TABLE IF NOT EXISTS users (

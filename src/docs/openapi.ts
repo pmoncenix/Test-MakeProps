@@ -109,6 +109,74 @@ export const openApiDocument = {
         },
       },
     },
+    "/user/search": {
+      get: {
+        summary: "Rechercher des utilisateurs par nom, prénom ou email",
+        tags: ["Users"],
+        parameters: [
+          {
+            name: "q",
+            in: "query",
+            required: true,
+            description: "Terme recherché dans le prénom, le nom ou l’adresse email.",
+            schema: { type: "string", minLength: 1, maxLength: 100, example: "martin" },
+          },
+          {
+            name: "page",
+            in: "query",
+            required: false,
+            description: "Numéro de page (par défaut : 1).",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Nombre d’utilisateurs par page (par défaut : 10, maximum : 100).",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 10 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Résultats de recherche paginés.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["users", "pagination"],
+                  properties: {
+                    users: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["id", "name", "email"],
+                        properties: {
+                          id: { type: "integer" },
+                          name: { type: "string" },
+                          email: { type: "string", format: "email" },
+                        },
+                      },
+                    },
+                    pagination: {
+                      type: "object",
+                      required: ["page", "limit", "total", "totalPages"],
+                      properties: {
+                        page: { type: "integer" },
+                        limit: { type: "integer" },
+                        total: { type: "integer" },
+                        totalPages: { type: "integer" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Terme de recherche ou paramètres de pagination invalides." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
+    },
     "/user/update": {
       put: {
         summary: "Modifier un utilisateur par son identifiant",
