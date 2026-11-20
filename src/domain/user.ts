@@ -4,9 +4,19 @@ export interface User {
   email: string;
 }
 
-export type UserUpdate = Pick<User, "name" | "email">;
+export interface UserUpdate extends Pick<User, "name" | "email"> {
+  firstName: string;
+  lastName: string;
+}
 
 export interface UserPage {
   users: User[];
   total: number;
+}
+
+export interface NewUser {
+  firstName: string;
+  lastName: string;
+  email: string;
+  passwordHash: string;
 }

@@ -1,9 +1,10 @@
-import type { User, UserPage, UserUpdate } from "../domain/user.js";
+import type { NewUser, User, UserPage, UserUpdate } from "../domain/user.js";
 
 export interface UserRepository {
   findById(id: number): User | null;
   findPage(page: number, limit: number): UserPage;
   searchPage(query: string, page: number, limit: number): UserPage;
+  create(user: NewUser): User;
   updateById(id: number, user: UserUpdate): User | null;
   deleteById(id: number): boolean;
 }

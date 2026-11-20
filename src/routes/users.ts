@@ -19,6 +19,14 @@ export function createUsersRouter(userService: UserService): Router {
     response.status(200).json(result);
   });
 
+  router.post("/register", async (request, response) => {
+    const user = await userService.register(request.body);
+    response
+      .status(201)
+      .location(`/user/get?id=${user.id}`)
+      .json(user);
+  });
+
   router.put("/update", (request, response) => {
     const user = userService.updateById(request.query.id, request.body);
     response.status(200).json(user);

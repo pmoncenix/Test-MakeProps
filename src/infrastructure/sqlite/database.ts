@@ -20,9 +20,20 @@ export function openDatabase(databasePath: string): Database.Database {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE
+      email TEXT NOT NULL UNIQUE,
+      first_name TEXT,
+      last_name TEXT,
+      password_hash TEXT
     );
   `);
+
+  const columns = database.pragma("table_info(users)") as Array<{ name: string }>;
+  const existingColumns = new Set(columns.map((column) => column.name));
+  for (const column of ["first_name", "last_name", "password_hash"] as const) {
+    if (!existingColumns.has(column)) {
+      database.exec(`ALTER TABLE users ADD COLUMN ${column} TEXT`);
+    }
+  }
 
   return database;
 }

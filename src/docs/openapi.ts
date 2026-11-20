@@ -177,6 +177,63 @@ export const openApiDocument = {
         },
       },
     },
+    "/user/register": {
+      post: {
+        summary: "Créer un compte utilisateur",
+        tags: ["Users"],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["firstName", "lastName", "email", "password"],
+                properties: {
+                  firstName: { type: "string", minLength: 1, maxLength: 100, example: "Alex" },
+                  lastName: { type: "string", minLength: 1, maxLength: 100, example: "Martin" },
+                  email: { type: "string", format: "email", maxLength: 254, example: "alex@example.com" },
+                  password: {
+                    type: "string",
+                    format: "password",
+                    minLength: 15,
+                    maxLength: 128,
+                    writeOnly: true,
+                    example: "a long memorable passphrase",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Compte créé. Le mot de passe et son hash ne sont jamais renvoyés.",
+            headers: {
+              Location: {
+                description: "URL de récupération de l’utilisateur créé.",
+                schema: { type: "string" },
+              },
+            },
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["id", "name", "email"],
+                  properties: {
+                    id: { type: "integer", example: 1 },
+                    name: { type: "string", example: "Alex Martin" },
+                    email: { type: "string", format: "email", example: "alex@example.com" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Données d’inscription invalides." },
+          "409": { description: "Une adresse email identique est déjà enregistrée." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
+    },
     "/user/update": {
       put: {
         summary: "Modifier un utilisateur par son identifiant",

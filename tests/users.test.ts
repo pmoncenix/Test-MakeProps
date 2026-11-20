@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import argon2 from "argon2";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { openDatabase } from "../src/infrastructure/sqlite/database.js";
@@ -138,6 +139,77 @@ describe("GET /user/search", () => {
     } finally {
       database.prepare("DELETE FROM users WHERE id = ?").run(4);
     }
+  });
+});
+
+describe("POST /user/register", () => {
+  it("crée un compte et ne renvoie ni ne stocke le mot de passe en clair", async () => {
+    const password = "A memorable passphrase 2026!";
+    const response = await request(app)
+      .post("/user/register")
+      .send({
+        firstName: "Élodie",
+        lastName: "Moreau",
+        email: "ELODIE.MOREAU@example.com",
+        password,
+      });
+    const storedUser = database.prepare(
+      "SELECT first_name, last_name, password_hash FROM users WHERE email = ?",
+    ).get("elodie.moreau@example.com") as {
+      first_name: string;
+      last_name: string;
+      password_hash: string;
+    } | undefined;
+
+    assert.equal(response.status, 201);
+    assert.equal(response.body.name, "Élodie Moreau");
+    assert.equal(response.body.email, "elodie.moreau@example.com");
+    assert.equal(typeof response.body.id, "number");
+    assert.equal(response.headers.location, `/user/get?id=${response.body.id}`);
+    assert.deepEqual(Object.keys(response.body).sort(), ["email", "id", "name"]);
+    assert.equal(storedUser?.first_name, "Élodie");
+    assert.equal(storedUser?.last_name, "Moreau");
+    assert.ok(storedUser?.password_hash.startsWith("$argon2id$"));
+    assert.notEqual(storedUser?.password_hash, password);
+    assert.equal(await argon2.verify(storedUser!.password_hash, password), true);
+  });
+
+  it("renvoie 400 pour des données invalides", async () => {
+    const shortPassword = await request(app)
+      .post("/user/register")
+      .send({
+        firstName: "Alex",
+        lastName: "Martin",
+        email: "alex2@example.com",
+        password: "short",
+      });
+    const invalidEmail = await request(app)
+      .post("/user/register")
+      .send({
+        firstName: "Alex",
+        lastName: "Martin",
+        email: "not-an-email",
+        password: "A memorable passphrase 2026!",
+      });
+
+    assert.equal(shortPassword.status, 400);
+    assert.equal(shortPassword.body.error.code, "INVALID_REGISTRATION_DATA");
+    assert.equal(invalidEmail.status, 400);
+    assert.equal(invalidEmail.body.error.code, "INVALID_REGISTRATION_DATA");
+  });
+
+  it("renvoie 409 si l’adresse email existe déjà", async () => {
+    const response = await request(app)
+      .post("/user/register")
+      .send({
+        firstName: "Alex",
+        lastName: "Autre",
+        email: "ALEX@example.com",
+        password: "A memorable passphrase 2026!",
+      });
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, "EMAIL_ALREADY_IN_USE");
   });
 });
 

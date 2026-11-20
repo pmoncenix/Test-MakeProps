@@ -44,6 +44,18 @@ Invoke-RestMethod "http://localhost:3000/user/search?q=martin&page=1&limit=10"
 
 Le paramètre `q` est obligatoire et doit contenir de 1 à 100 caractères. Un terme ou des paramètres de pagination invalides renvoient `400`.
 
+## Créer un compte
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:3000/user/register" `
+  -ContentType "application/json" `
+  -Body '{"firstName":"Alex","lastName":"Martin","email":"alex@example.com","password":"a memorable passphrase 2026!"}'
+```
+
+Le mot de passe doit contenir entre 15 et 128 caractères. Il est stocké sous forme de hash Argon2id et n’apparaît jamais dans la réponse. Le prénom et le nom sont enregistrés séparément en base, tandis que l’API renvoie le champ `name` complet pour rester cohérente avec les autres routes. L’adresse email est normalisée en minuscules; une adresse déjà utilisée renvoie `409`.
+
 ## Modifier un utilisateur
 
 `PUT /user/update` utilise le même identifiant en query string. Les champs `name` et `email` sont requis dans le corps JSON :
