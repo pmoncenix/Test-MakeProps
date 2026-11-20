@@ -35,6 +35,14 @@ export class SqliteUserRepository implements UserRepository {
 
     return this.findById(id);
   }
+
+  deleteById(id: number): boolean {
+    const result = this.database
+      .prepare("DELETE FROM users WHERE id = ?")
+      .run(id);
+
+    return result.changes > 0;
+  }
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

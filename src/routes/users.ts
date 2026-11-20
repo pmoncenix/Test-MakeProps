@@ -14,5 +14,10 @@ export function createUsersRouter(userService: UserService): Router {
     response.status(200).json(user);
   });
 
+  router.delete("/delete", (request, response) => {
+    userService.deleteById(request.query.id);
+    response.status(204).send();
+  });
+
   return router;
 }

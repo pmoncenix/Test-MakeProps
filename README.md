@@ -40,6 +40,14 @@ Invoke-RestMethod `
 
 La réponse `200` contient l’utilisateur modifié. La route renvoie `400` pour un identifiant ou des champs invalides, `404` si l’utilisateur n’existe pas et `409` si l’adresse email est déjà utilisée.
 
+## Supprimer un utilisateur
+
+```powershell
+Invoke-RestMethod -Method Delete -Uri "http://localhost:3000/user/delete?id=1"
+```
+
+La réponse `204` confirme la suppression sans renvoyer de contenu. La route renvoie `400` si l’identifiant est invalide et `404` si l’utilisateur n’existe pas.
+
 ## Documentation et tests
 
 - Swagger UI : `http://localhost:3000/api-docs`

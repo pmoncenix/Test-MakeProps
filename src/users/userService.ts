@@ -31,6 +31,12 @@ export class UserService {
       throw error;
     }
   }
+
+  deleteById(rawId: unknown): void {
+    const id = parseId(rawId);
+    const deleted = this.userRepository.deleteById(id);
+    if (!deleted) throw userNotFoundError(id);
+  }
 }
 
 function parseId(rawId: unknown): number {

@@ -14,6 +14,8 @@ before(() => {
     .run(1, "Alex Martin", "alex@example.com");
   database.prepare("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")
     .run(2, "Camille Durand", "camille@example.com");
+  database.prepare("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")
+    .run(3, "Morgan Petit", "morgan@example.com");
 });
 
 after(() => database.close());
@@ -106,5 +108,33 @@ describe("PUT /user/update", () => {
 
     assert.equal(response.status, 409);
     assert.equal(response.body.error.code, "EMAIL_ALREADY_IN_USE");
+  });
+});
+
+describe("DELETE /user/delete", () => {
+  it("supprime l’utilisateur demandé", async () => {
+    const response = await request(app).delete("/user/delete").query({ id: 3 });
+    const getResponse = await request(app).get("/user/get").query({ id: 3 });
+
+    assert.equal(response.status, 204);
+    assert.equal(getResponse.status, 404);
+    assert.equal(getResponse.body.error.code, "USER_NOT_FOUND");
+  });
+
+  it("renvoie 400 si l’identifiant est absent ou invalide", async () => {
+    const missingId = await request(app).delete("/user/delete");
+    const invalidId = await request(app).delete("/user/delete").query({ id: "abc" });
+
+    assert.equal(missingId.status, 400);
+    assert.equal(missingId.body.error.code, "INVALID_USER_ID");
+    assert.equal(invalidId.status, 400);
+    assert.equal(invalidId.body.error.code, "INVALID_USER_ID");
+  });
+
+  it("renvoie 404 si l’utilisateur n’existe pas", async () => {
+    const response = await request(app).delete("/user/delete").query({ id: 999 });
+
+    assert.equal(response.status, 404);
+    assert.equal(response.body.error.code, "USER_NOT_FOUND");
   });
 });

@@ -100,5 +100,26 @@ export const openApiDocument = {
         },
       },
     },
+    "/user/delete": {
+      delete: {
+        summary: "Supprimer un utilisateur par son identifiant",
+        tags: ["Users"],
+        parameters: [
+          {
+            name: "id",
+            in: "query",
+            required: true,
+            description: "Identifiant entier positif de l’utilisateur.",
+            schema: { type: "integer", minimum: 1 },
+          },
+        ],
+        responses: {
+          "204": { description: "Utilisateur supprimé." },
+          "400": { description: "Identifiant absent ou invalide." },
+          "404": { description: "Aucun utilisateur ne correspond à cet identifiant." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
+    },
   },
 } as const;
