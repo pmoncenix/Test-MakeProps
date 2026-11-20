@@ -20,3 +20,7 @@ export interface NewUser {
   email: string;
   passwordHash: string;
 }
+
+export interface UserCredential extends User {
+  passwordHash: string | null;
+}

@@ -1,11 +1,19 @@
-import argon2 from "argon2";
+import {
+  ACCESS_TOKEN_TTL_SECONDS,
+  AccessTokenService,
+} from "../auth/AccessTokenService.js";
+import type { AuthenticationResult } from "../auth/AuthenticationResult.js";
+import { hashPassword, performDummyPasswordWork, verifyPassword } from "../auth/passwordService.js";
 import { AppError } from "../errors/AppError.js";
 import { UserEmailAlreadyInUseError } from "../domain/errors/UserEmailAlreadyInUseError.js";
 import type { NewUser, User, UserUpdate } from "../domain/user.js";
 import type { UserRepository } from "./userRepository.js";
 
 export class UserService {
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly accessTokenService: AccessTokenService,
+  ) {}
 
   getById(rawId: unknown): User {
     const id = parseId(rawId);
@@ -31,14 +39,9 @@ export class UserService {
     return toPaginatedResponse(this.userRepository.findPage(page, limit), page, limit);
   }
 
-  async register(rawInput: unknown): Promise<User> {
+  async register(rawInput: unknown): Promise<AuthenticationResult> {
     const input = parseRegistrationInput(rawInput);
-    const passwordHash = await argon2.hash(input.password, {
-      type: argon2.argon2id,
-      memoryCost: 19 * 1024,
-      timeCost: 2,
-      parallelism: 1,
-    });
+    const passwordHash = await hashPassword(input.password);
 
     const newUser: NewUser = {
       firstName: input.firstName,
@@ -47,8 +50,9 @@ export class UserService {
       passwordHash,
     };
 
+    let user: User;
     try {
-      return this.userRepository.create(newUser);
+      user = this.userRepository.create(newUser);
     } catch (error) {
       if (error instanceof UserEmailAlreadyInUseError) {
         throw new AppError(409, "EMAIL_ALREADY_IN_USE", error.message);
@@ -56,6 +60,46 @@ export class UserService {
 
       throw error;
     }
+
+    return this.createAuthenticationResult(user);
+  }
+
+  async login(rawInput: unknown): Promise<AuthenticationResult> {
+    const input = parseLoginInput(rawInput);
+    const credentials = this.userRepository.findByEmail(input.email);
+    let passwordIsValid = false;
+
+    if (credentials?.passwordHash) {
+      try {
+        passwordIsValid = await verifyPassword(credentials.passwordHash, input.password);
+      } catch {
+        // Do comparable password-hash work if a stored hash is corrupt.
+        await performDummyPasswordWork(input.password);
+      }
+    } else {
+      // Keep unknown accounts and legacy accounts without a password hash on a similar timing path.
+      await performDummyPasswordWork(input.password);
+    }
+
+    if (!credentials || !credentials.passwordHash || !passwordIsValid) {
+      throw invalidCredentialsError();
+    }
+
+    return this.createAuthenticationResult({
+      id: credentials.id,
+      name: credentials.name,
+      email: credentials.email,
+    });
+  }
+
+  private async createAuthenticationResult(user: User): Promise<AuthenticationResult> {
+    const accessToken = await this.accessTokenService.issue(user);
+    return {
+      accessToken,
+      tokenType: "Bearer",
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      user,
+    };
   }
 
   search(rawQuery: unknown, rawPage: unknown, rawLimit: unknown): {
@@ -76,6 +120,18 @@ export class UserService {
 
   updateById(rawId: unknown, rawInput: unknown): User {
     const id = parseId(rawId);
+    return this.updateUser(id, rawInput);
+  }
+
+  updateAuthenticatedUser(userId: number, rawInput: unknown): User {
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      throw new AppError(401, "AUTHENTICATION_REQUIRED", "Un jeton Bearer valide est requis.");
+    }
+
+    return this.updateUser(userId, rawInput);
+  }
+
+  private updateUser(id: number, rawInput: unknown): User {
     const update = parseUserUpdate(rawInput);
 
     try {
@@ -185,6 +241,41 @@ function parseRegistrationInput(rawInput: unknown): {
     email,
     password: input.password,
   };
+}
+
+function parseLoginInput(rawInput: unknown): { email: string; password: string } {
+  if (typeof rawInput !== "object" || rawInput === null || Array.isArray(rawInput)) {
+    throw invalidLoginDataError();
+  }
+
+  const input = rawInput as Record<string, unknown>;
+  if (typeof input.email !== "string") {
+    throw invalidLoginDataError();
+  }
+
+  const email = input.email.trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw invalidLoginDataError();
+  }
+
+  if (typeof input.password !== "string") {
+    throw invalidLoginDataError();
+  }
+
+  const passwordLength = [...input.password].length;
+  if (passwordLength === 0 || passwordLength > 128) {
+    throw invalidLoginDataError();
+  }
+
+  return { email, password: input.password };
+}
+
+function invalidLoginDataError(): AppError {
+  return new AppError(400, "INVALID_LOGIN_DATA", "Une adresse email et un mot de passe valides sont requis.");
+}
+
+function invalidCredentialsError(): AppError {
+  return new AppError(401, "INVALID_CREDENTIALS", "Email ou mot de passe incorrect.");
 }
 
 function isValidName(value: unknown): value is string {

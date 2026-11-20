@@ -1,8 +1,38 @@
 import { Router } from "express";
+import { rateLimit } from "express-rate-limit";
+import type { AuthenticatedRequest } from "../auth/authenticationMiddleware.js";
 import type { UserService } from "../users/userService.js";
+
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.status(429).json({
+      error: {
+        code: "LOGIN_RATE_LIMITED",
+        message: "Trop de tentatives de connexion. Réessayez dans 15 minutes.",
+      },
+    });
+  },
+});
 
 export function createUsersRouter(userService: UserService): Router {
   const router = Router();
+
+  router.post("/register", async (request, response) => {
+    const result = await userService.register(request.body);
+    response
+      .status(201)
+      .location(`/user/get?id=${result.user.id}`)
+      .json(result);
+  });
+
+  router.post("/login", loginRateLimiter, async (request, response) => {
+    const result = await userService.login(request.body);
+    response.status(200).json(result);
+  });
 
   router.get("/get", (request, response) => {
     const user = userService.getById(request.query.id);
@@ -19,12 +49,10 @@ export function createUsersRouter(userService: UserService): Router {
     response.status(200).json(result);
   });
 
-  router.post("/register", async (request, response) => {
-    const user = await userService.register(request.body);
-    response
-      .status(201)
-      .location(`/user/get?id=${user.id}`)
-      .json(user);
+  router.put("/me", (request, response) => {
+    const { userId } = (request as AuthenticatedRequest).auth;
+    const user = userService.updateAuthenticatedUser(userId, request.body);
+    response.status(200).json(user);
   });
 
   router.put("/update", (request, response) => {

@@ -1,14 +1,17 @@
 import express, { type Express } from "express";
 import swaggerUi from "swagger-ui-express";
+import type { AccessTokenService } from "./auth/AccessTokenService.js";
+import { createAuthenticationMiddleware } from "./auth/authenticationMiddleware.js";
 import { openApiDocument } from "./docs/openapi.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createUsersRouter } from "./routes/users.js";
 import type { UserService } from "./users/userService.js";
 
-export function createApp(userService: UserService): Express {
+export function createApp(userService: UserService, accessTokenService: AccessTokenService): Express {
   const app = express();
 
   app.use(express.json());
+  app.use(createAuthenticationMiddleware(accessTokenService));
   app.use("/user", createUsersRouter(userService));
   app.get("/health", (_request, response) => response.status(200).json({ status: "ok" }));
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));

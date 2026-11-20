@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { UserEmailAlreadyInUseError } from "../../domain/errors/UserEmailAlreadyInUseError.js";
-import type { NewUser, User, UserPage, UserUpdate } from "../../domain/user.js";
+import type { NewUser, User, UserCredential, UserPage, UserUpdate } from "../../domain/user.js";
 import type { UserRepository } from "../../users/userRepository.js";
 
 interface UserRow {
@@ -16,6 +16,18 @@ export class SqliteUserRepository implements UserRepository {
     const row = this.database
       .prepare("SELECT id, name, email FROM users WHERE id = ?")
       .get(id) as UserRow | undefined;
+
+    return row ?? null;
+  }
+
+  findByEmail(email: string): UserCredential | null {
+    const row = this.database
+      .prepare(`
+        SELECT id, name, email, password_hash AS passwordHash
+        FROM users
+        WHERE lower(email) = lower(?)
+      `)
+      .get(email) as UserCredential | undefined;
 
     return row ?? null;
   }

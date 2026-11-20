@@ -5,6 +5,16 @@ export const openApiDocument = {
     version: "1.0.0",
     description: "Documentation de l’API Makeprops.",
   },
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    },
+  },
+  security: [{ bearerAuth: [] }],
   paths: {
     "/user/get": {
       get: {
@@ -39,6 +49,7 @@ export const openApiDocument = {
           "400": {
             description: "Identifiant absent ou invalide.",
           },
+          "401": { description: "Jeton absent, invalide ou expiré." },
           "404": {
             description: "Aucun utilisateur ne correspond à cet identifiant.",
           },
@@ -105,6 +116,7 @@ export const openApiDocument = {
             },
           },
           "400": { description: "Paramètres de pagination invalides." },
+          "401": { description: "Jeton absent, invalide ou expiré." },
           "500": { description: "Erreur interne du serveur." },
         },
       },
@@ -173,6 +185,7 @@ export const openApiDocument = {
             },
           },
           "400": { description: "Terme de recherche ou paramètres de pagination invalides." },
+          "401": { description: "Jeton absent, invalide ou expiré." },
           "500": { description: "Erreur interne du serveur." },
         },
       },
@@ -181,6 +194,7 @@ export const openApiDocument = {
       post: {
         summary: "Créer un compte utilisateur",
         tags: ["Users"],
+        security: [],
         requestBody: {
           required: true,
           content: {
@@ -207,13 +221,123 @@ export const openApiDocument = {
         },
         responses: {
           "201": {
-            description: "Compte créé. Le mot de passe et son hash ne sont jamais renvoyés.",
+            description: "Compte créé et connecté. Le mot de passe et son hash ne sont jamais renvoyés.",
             headers: {
               Location: {
                 description: "URL de récupération de l’utilisateur créé.",
                 schema: { type: "string" },
               },
             },
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["accessToken", "tokenType", "expiresIn", "user"],
+                  properties: {
+                    accessToken: { type: "string" },
+                    tokenType: { type: "string", enum: ["Bearer"] },
+                    expiresIn: { type: "integer", example: 900 },
+                    user: {
+                      type: "object",
+                      required: ["id", "name", "email"],
+                      properties: {
+                        id: { type: "integer", example: 1 },
+                        name: { type: "string", example: "Alex Martin" },
+                        email: { type: "string", format: "email", example: "alex@example.com" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Données d’inscription invalides." },
+          "409": { description: "Une adresse email identique est déjà enregistrée." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
+    },
+    "/user/login": {
+      post: {
+        summary: "Se connecter avec une adresse email et un mot de passe",
+        tags: ["Users"],
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "password"],
+                properties: {
+                  email: { type: "string", format: "email", maxLength: 254, example: "alex@example.com" },
+                  password: {
+                    type: "string",
+                    format: "password",
+                    minLength: 1,
+                    maxLength: 128,
+                    writeOnly: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Connexion réussie; jeton d’accès Bearer valide pendant 15 minutes.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["accessToken", "tokenType", "expiresIn", "user"],
+                  properties: {
+                    accessToken: { type: "string" },
+                    tokenType: { type: "string", enum: ["Bearer"] },
+                    expiresIn: { type: "integer", example: 900 },
+                    user: {
+                      type: "object",
+                      required: ["id", "name", "email"],
+                      properties: {
+                        id: { type: "integer", example: 1 },
+                        name: { type: "string", example: "Alex Martin" },
+                        email: { type: "string", format: "email", example: "alex@example.com" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Format des identifiants invalide." },
+          "401": { description: "Email ou mot de passe incorrect." },
+          "429": { description: "Trop de tentatives de connexion." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
+    },
+    "/user/me": {
+      put: {
+        summary: "Modifier le profil de l’utilisateur authentifié",
+        tags: ["Users"],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name", "email"],
+                properties: {
+                  name: { type: "string", minLength: 1, example: "Alex Martin" },
+                  email: { type: "string", format: "email", maxLength: 254, example: "alex@example.com" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Profil mis à jour.",
             content: {
               "application/json": {
                 schema: {
@@ -228,8 +352,9 @@ export const openApiDocument = {
               },
             },
           },
-          "400": { description: "Données d’inscription invalides." },
-          "409": { description: "Une adresse email identique est déjà enregistrée." },
+          "400": { description: "Données de profil invalides." },
+          "401": { description: "Jeton absent, invalide ou expiré." },
+          "409": { description: "L’adresse email est déjà utilisée." },
           "500": { description: "Erreur interne du serveur." },
         },
       },
@@ -280,6 +405,7 @@ export const openApiDocument = {
             },
           },
           "400": { description: "Identifiant, JSON ou champs invalides." },
+          "401": { description: "Jeton absent, invalide ou expiré." },
           "404": { description: "Aucun utilisateur ne correspond à cet identifiant." },
           "409": { description: "L’adresse email est déjà utilisée." },
           "500": { description: "Erreur interne du serveur." },
@@ -302,6 +428,7 @@ export const openApiDocument = {
         responses: {
           "204": { description: "Utilisateur supprimé." },
           "400": { description: "Identifiant absent ou invalide." },
+          "401": { description: "Jeton absent, invalide ou expiré." },
           "404": { description: "Aucun utilisateur ne correspond à cet identifiant." },
           "500": { description: "Erreur interne du serveur." },
         },

@@ -1,29 +1,69 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import argon2 from "argon2";
+import { jwtVerify } from "jose";
 import request from "supertest";
 import { createApp } from "../src/app.js";
+import {
+  ACCESS_TOKEN_AUDIENCE,
+  ACCESS_TOKEN_ISSUER,
+  AccessTokenService,
+} from "../src/auth/AccessTokenService.js";
 import { openDatabase } from "../src/infrastructure/sqlite/database.js";
 import { SqliteUserRepository } from "../src/infrastructure/sqlite/SqliteUserRepository.js";
 import { UserService } from "../src/users/userService.js";
 
 const database = openDatabase(":memory:");
-const app = createApp(new UserService(new SqliteUserRepository(database)));
+const testJwtSecret = new TextEncoder().encode("test-only-jwt-secret-with-at-least-32-bytes");
+const accessTokenService = new AccessTokenService(testJwtSecret);
+const app = createApp(
+  new UserService(new SqliteUserRepository(database), accessTokenService),
+  accessTokenService,
+);
+let authToken: string;
 
-before(() => {
+const api = {
+  get: (path: string) => request(app).get(path).set("Authorization", `Bearer ${authToken}`),
+  put: (path: string) => request(app).put(path).set("Authorization", `Bearer ${authToken}`),
+  delete: (path: string) => request(app).delete(path).set("Authorization", `Bearer ${authToken}`),
+};
+
+before(async () => {
   database.prepare("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")
     .run(1, "Alex Martin", "alex@example.com");
   database.prepare("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")
     .run(2, "Camille Durand", "camille@example.com");
   database.prepare("INSERT INTO users (id, name, email) VALUES (?, ?, ?)")
     .run(3, "Morgan Petit", "morgan@example.com");
+  authToken = await accessTokenService.issue({ id: 1, email: "alex@example.com" });
 });
 
 after(() => database.close());
 
+describe("middleware d’authentification", () => {
+  it("refuse l’accès sans jeton ou avec un jeton invalide", async () => {
+    const missingToken = await request(app).get("/user/list");
+    const invalidToken = await request(app)
+      .get("/user/list")
+      .set("Authorization", "Bearer invalid-token");
+    const healthWithoutToken = await request(app).get("/health");
+    const docsWithoutToken = await request(app).get("/api-docs.json");
+    const docsUiWithoutToken = await request(app).get("/api-docs/");
+
+    assert.equal(missingToken.status, 401);
+    assert.equal(missingToken.body.error.code, "AUTHENTICATION_REQUIRED");
+    assert.equal(missingToken.headers["www-authenticate"], "Bearer");
+    assert.equal(invalidToken.status, 401);
+    assert.equal(invalidToken.body.error.code, "AUTHENTICATION_REQUIRED");
+    assert.equal(healthWithoutToken.status, 200);
+    assert.equal(docsWithoutToken.status, 200);
+    assert.equal(docsUiWithoutToken.status, 200);
+  });
+});
+
 describe("GET /user/get", () => {
   it("renvoie l’utilisateur demandé", async () => {
-    const response = await request(app).get("/user/get").query({ id: 1 });
+    const response = await api.get("/user/get").query({ id: 1 });
 
     assert.equal(response.status, 200);
     assert.deepEqual(response.body, {
@@ -34,8 +74,8 @@ describe("GET /user/get", () => {
   });
 
   it("renvoie 400 si l’identifiant est absent ou invalide", async () => {
-    const missingId = await request(app).get("/user/get");
-    const invalidId = await request(app).get("/user/get").query({ id: "abc" });
+    const missingId = await api.get("/user/get");
+    const invalidId = await api.get("/user/get").query({ id: "abc" });
 
     assert.equal(missingId.status, 400);
     assert.equal(missingId.body.error.code, "INVALID_USER_ID");
@@ -44,7 +84,7 @@ describe("GET /user/get", () => {
   });
 
   it("renvoie 404 si l’utilisateur n’existe pas", async () => {
-    const response = await request(app).get("/user/get").query({ id: 999 });
+    const response = await api.get("/user/get").query({ id: 999 });
 
     assert.equal(response.status, 404);
     assert.equal(response.body.error.code, "USER_NOT_FOUND");
@@ -53,8 +93,8 @@ describe("GET /user/get", () => {
 
 describe("GET /user/list", () => {
   it("renvoie les utilisateurs et les métadonnées de pagination", async () => {
-    const firstPage = await request(app).get("/user/list").query({ page: 1, limit: 2 });
-    const secondPage = await request(app).get("/user/list").query({ page: 2, limit: 2 });
+    const firstPage = await api.get("/user/list").query({ page: 1, limit: 2 });
+    const secondPage = await api.get("/user/list").query({ page: 2, limit: 2 });
 
     assert.equal(firstPage.status, 200);
     assert.deepEqual(firstPage.body, {
@@ -72,7 +112,7 @@ describe("GET /user/list", () => {
   });
 
   it("utilise les valeurs par défaut si aucun paramètre n’est fourni", async () => {
-    const response = await request(app).get("/user/list");
+    const response = await api.get("/user/list");
 
     assert.equal(response.status, 200);
     assert.equal(response.body.pagination.page, 1);
@@ -81,8 +121,8 @@ describe("GET /user/list", () => {
   });
 
   it("renvoie 400 si les paramètres de pagination sont invalides", async () => {
-    const invalidPage = await request(app).get("/user/list").query({ page: 0 });
-    const excessiveLimit = await request(app).get("/user/list").query({ limit: 101 });
+    const invalidPage = await api.get("/user/list").query({ page: 0 });
+    const excessiveLimit = await api.get("/user/list").query({ limit: 101 });
 
     assert.equal(invalidPage.status, 400);
     assert.equal(invalidPage.body.error.code, "INVALID_PAGINATION");
@@ -93,9 +133,9 @@ describe("GET /user/list", () => {
 
 describe("GET /user/search", () => {
   it("recherche par prénom, nom ou email", async () => {
-    const firstNameMatch = await request(app).get("/user/search").query({ q: "alex" });
-    const lastNameMatch = await request(app).get("/user/search").query({ q: "martin" });
-    const emailMatch = await request(app).get("/user/search").query({ q: "camille@example.com" });
+    const firstNameMatch = await api.get("/user/search").query({ q: "alex" });
+    const lastNameMatch = await api.get("/user/search").query({ q: "martin" });
+    const emailMatch = await api.get("/user/search").query({ q: "camille@example.com" });
 
     assert.deepEqual(firstNameMatch.body.users.map((user: { id: number }) => user.id), [1]);
     assert.deepEqual(lastNameMatch.body.users.map((user: { id: number }) => user.id), [1]);
@@ -103,7 +143,7 @@ describe("GET /user/search", () => {
   });
 
   it("applique la pagination aux résultats de recherche", async () => {
-    const response = await request(app)
+    const response = await api
       .get("/user/search")
       .query({ q: "example.com", page: 2, limit: 1 });
 
@@ -115,9 +155,9 @@ describe("GET /user/search", () => {
   });
 
   it("renvoie 400 si le terme ou la pagination est invalide", async () => {
-    const missingQuery = await request(app).get("/user/search");
-    const emptyQuery = await request(app).get("/user/search").query({ q: "  " });
-    const invalidPage = await request(app).get("/user/search").query({ q: "alex", page: 0 });
+    const missingQuery = await api.get("/user/search");
+    const emptyQuery = await api.get("/user/search").query({ q: "  " });
+    const invalidPage = await api.get("/user/search").query({ q: "alex", page: 0 });
 
     assert.equal(missingQuery.status, 400);
     assert.equal(missingQuery.body.error.code, "INVALID_SEARCH_QUERY");
@@ -132,7 +172,7 @@ describe("GET /user/search", () => {
       .run(4, "Élodie Moreau", "elodie.moreau@example.com");
 
     try {
-      const response = await request(app).get("/user/search").query({ q: "elodie" });
+      const response = await api.get("/user/search").query({ q: "elodie" });
 
       assert.equal(response.status, 200);
       assert.deepEqual(response.body.users.map((user: { id: number }) => user.id), [4]);
@@ -160,13 +200,22 @@ describe("POST /user/register", () => {
       last_name: string;
       password_hash: string;
     } | undefined;
+    const { payload } = await jwtVerify(response.body.accessToken, testJwtSecret, {
+      issuer: ACCESS_TOKEN_ISSUER,
+      audience: ACCESS_TOKEN_AUDIENCE,
+    });
 
     assert.equal(response.status, 201);
-    assert.equal(response.body.name, "Élodie Moreau");
-    assert.equal(response.body.email, "elodie.moreau@example.com");
-    assert.equal(typeof response.body.id, "number");
-    assert.equal(response.headers.location, `/user/get?id=${response.body.id}`);
-    assert.deepEqual(Object.keys(response.body).sort(), ["email", "id", "name"]);
+    assert.equal(response.body.user.name, "Élodie Moreau");
+    assert.equal(response.body.user.email, "elodie.moreau@example.com");
+    assert.equal(typeof response.body.user.id, "number");
+    assert.equal(response.headers.location, `/user/get?id=${response.body.user.id}`);
+    assert.deepEqual(Object.keys(response.body).sort(), ["accessToken", "expiresIn", "tokenType", "user"]);
+    assert.deepEqual(Object.keys(response.body.user).sort(), ["email", "id", "name"]);
+    assert.equal(response.body.tokenType, "Bearer");
+    assert.equal(response.body.expiresIn, 900);
+    assert.equal(payload.sub, String(response.body.user.id));
+    assert.equal(payload.email, "elodie.moreau@example.com");
     assert.equal(storedUser?.first_name, "Élodie");
     assert.equal(storedUser?.last_name, "Moreau");
     assert.ok(storedUser?.password_hash.startsWith("$argon2id$"));
@@ -213,9 +262,58 @@ describe("POST /user/register", () => {
   });
 });
 
+describe("POST /user/login", () => {
+  it("vérifie le mot de passe et renvoie un jeton Bearer valide", async () => {
+    const response = await request(app)
+      .post("/user/login")
+      .send({ email: "ELODIE.MOREAU@example.com", password: "A memorable passphrase 2026!" });
+    const { payload, protectedHeader } = await jwtVerify(response.body.accessToken, testJwtSecret, {
+      issuer: ACCESS_TOKEN_ISSUER,
+      audience: ACCESS_TOKEN_AUDIENCE,
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.tokenType, "Bearer");
+    assert.equal(response.body.expiresIn, 900);
+    assert.deepEqual(response.body.user, {
+      id: response.body.user.id,
+      name: "Élodie Moreau",
+      email: "elodie.moreau@example.com",
+    });
+    assert.deepEqual(Object.keys(response.body.user).sort(), ["email", "id", "name"]);
+    assert.equal(protectedHeader.alg, "HS256");
+    assert.equal(payload.sub, String(response.body.user.id));
+    assert.equal(payload.email, "elodie.moreau@example.com");
+    assert.ok(payload.exp);
+  });
+
+  it("renvoie la même erreur si le compte est inconnu ou le mot de passe incorrect", async () => {
+    const wrongPassword = await request(app)
+      .post("/user/login")
+      .send({ email: "elodie.moreau@example.com", password: "incorrect passphrase 2026!" });
+    const unknownAccount = await request(app)
+      .post("/user/login")
+      .send({ email: "unknown@example.com", password: "incorrect passphrase 2026!" });
+
+    assert.equal(wrongPassword.status, 401);
+    assert.equal(unknownAccount.status, 401);
+    assert.deepEqual(wrongPassword.body, unknownAccount.body);
+    assert.equal(wrongPassword.body.error.code, "INVALID_CREDENTIALS");
+  });
+
+  it("renvoie 400 si les identifiants sont mal formés", async () => {
+    const response = await request(app)
+      .post("/user/login")
+      .send({ email: "not-an-email", password: "password" });
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, "INVALID_LOGIN_DATA");
+  });
+});
+
 describe("PUT /user/update", () => {
   it("modifie et renvoie l’utilisateur", async () => {
-    const response = await request(app)
+    const response = await api
       .put("/user/update")
       .query({ id: 2 })
       .send({ name: "Camille Martin", email: "camille.martin@example.com" });
@@ -229,10 +327,10 @@ describe("PUT /user/update", () => {
   });
 
   it("renvoie 400 si l’identifiant ou les champs sont invalides", async () => {
-    const missingId = await request(app)
+    const missingId = await api
       .put("/user/update")
       .send({ name: "Camille", email: "camille@example.com" });
-    const invalidBody = await request(app)
+    const invalidBody = await api
       .put("/user/update")
       .query({ id: 2 })
       .send({ name: " ", email: "pas-une-adresse" });
@@ -244,7 +342,7 @@ describe("PUT /user/update", () => {
   });
 
   it("renvoie 400 si le JSON est mal formé", async () => {
-    const response = await request(app)
+    const response = await api
       .put("/user/update?id=2")
       .set("Content-Type", "application/json")
       .send('{"name":');
@@ -254,7 +352,7 @@ describe("PUT /user/update", () => {
   });
 
   it("renvoie 404 si l’utilisateur n’existe pas", async () => {
-    const response = await request(app)
+    const response = await api
       .put("/user/update")
       .query({ id: 999 })
       .send({ name: "Nouvel utilisateur", email: "new@example.com" });
@@ -264,7 +362,7 @@ describe("PUT /user/update", () => {
   });
 
   it("renvoie 409 si l’email est déjà utilisé", async () => {
-    const response = await request(app)
+    const response = await api
       .put("/user/update")
       .query({ id: 2 })
       .send({ name: "Camille Durand", email: "alex@example.com" });
@@ -276,8 +374,8 @@ describe("PUT /user/update", () => {
 
 describe("DELETE /user/delete", () => {
   it("supprime l’utilisateur demandé", async () => {
-    const response = await request(app).delete("/user/delete").query({ id: 3 });
-    const getResponse = await request(app).get("/user/get").query({ id: 3 });
+    const response = await api.delete("/user/delete").query({ id: 3 });
+    const getResponse = await api.get("/user/get").query({ id: 3 });
 
     assert.equal(response.status, 204);
     assert.equal(getResponse.status, 404);
@@ -285,8 +383,8 @@ describe("DELETE /user/delete", () => {
   });
 
   it("renvoie 400 si l’identifiant est absent ou invalide", async () => {
-    const missingId = await request(app).delete("/user/delete");
-    const invalidId = await request(app).delete("/user/delete").query({ id: "abc" });
+    const missingId = await api.delete("/user/delete");
+    const invalidId = await api.delete("/user/delete").query({ id: "abc" });
 
     assert.equal(missingId.status, 400);
     assert.equal(missingId.body.error.code, "INVALID_USER_ID");
@@ -295,9 +393,45 @@ describe("DELETE /user/delete", () => {
   });
 
   it("renvoie 404 si l’utilisateur n’existe pas", async () => {
-    const response = await request(app).delete("/user/delete").query({ id: 999 });
+    const response = await api.delete("/user/delete").query({ id: 999 });
 
     assert.equal(response.status, 404);
     assert.equal(response.body.error.code, "USER_NOT_FOUND");
+  });
+});
+
+describe("PUT /user/me", () => {
+  it("modifie le profil lié au jeton, sans utiliser un ID fourni par le client", async () => {
+    const response = await api.put("/user/me").send({
+      id: 2,
+      name: "Alex Authentifié",
+      email: "alex.authentifie@example.com",
+    });
+    const otherUser = await api.get("/user/get").query({ id: 2 });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, {
+      id: 1,
+      name: "Alex Authentifié",
+      email: "alex.authentifie@example.com",
+    });
+    assert.deepEqual(otherUser.body, {
+      id: 2,
+      name: "Camille Martin",
+      email: "camille.martin@example.com",
+    });
+  });
+
+  it("gère les données invalides et les emails déjà utilisés", async () => {
+    const invalidBody = await api.put("/user/me").send({ name: " ", email: "not-an-email" });
+    const duplicateEmail = await api.put("/user/me").send({
+      name: "Alex Authentifié",
+      email: "camille.martin@example.com",
+    });
+
+    assert.equal(invalidBody.status, 400);
+    assert.equal(invalidBody.body.error.code, "INVALID_USER_INPUT");
+    assert.equal(duplicateEmail.status, 409);
+    assert.equal(duplicateEmail.body.error.code, "EMAIL_ALREADY_IN_USE");
   });
 });
