@@ -26,6 +26,20 @@ Invoke-RestMethod "http://localhost:3000/user/get?id=1"
 
 La réponse `200` contient `id`, `name` et `email`. Une requête sans identifiant ou avec un identifiant invalide renvoie `400`; un identifiant valide sans utilisateur correspondant renvoie `404`.
 
+## Modifier un utilisateur
+
+`PUT /user/update` utilise le même identifiant en query string. Les champs `name` et `email` sont requis dans le corps JSON :
+
+```powershell
+Invoke-RestMethod `
+  -Method Put `
+  -Uri "http://localhost:3000/user/update?id=1" `
+  -ContentType "application/json" `
+  -Body '{"name":"Alex Martin","email":"alex.martin@example.com"}'
+```
+
+La réponse `200` contient l’utilisateur modifié. La route renvoie `400` pour un identifiant ou des champs invalides, `404` si l’utilisateur n’existe pas et `409` si l’adresse email est déjà utilisée.
+
 ## Documentation et tests
 
 - Swagger UI : `http://localhost:3000/api-docs`

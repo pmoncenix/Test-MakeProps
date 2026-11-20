@@ -3,3 +3,5 @@ export interface User {
   name: string;
   email: string;
 }
+
+export type UserUpdate = Pick<User, "name" | "email">;

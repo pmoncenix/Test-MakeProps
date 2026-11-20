@@ -12,6 +12,16 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
     return;
   }
 
+  if (isMalformedJsonError(error)) {
+    response.status(400).json({
+      error: {
+        code: "INVALID_JSON_BODY",
+        message: "Le corps de la requête doit contenir un JSON valide.",
+      },
+    });
+    return;
+  }
+
   console.error(error);
   response.status(500).json({
     error: {
@@ -20,3 +30,10 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
     },
   });
 };
+
+function isMalformedJsonError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "type" in error
+    && error.type === "entity.parse.failed";
+}
