@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import argon2 from "argon2";
 import { jwtVerify } from "jose";
@@ -10,17 +13,37 @@ import {
   AccessTokenService,
 } from "../src/auth/AccessTokenService.js";
 import { openDatabase } from "../src/infrastructure/sqlite/database.js";
+import { UserPhotoStorage } from "../src/infrastructure/fileSystem/UserPhotoStorage.js";
 import { SqliteUserRepository } from "../src/infrastructure/sqlite/SqliteUserRepository.js";
 import { UserService } from "../src/users/userService.js";
 
 const database = openDatabase(":memory:");
+const photoDirectory = mkdtempSync(join(tmpdir(), "makeprops-user-photos-"));
+const photoStorage = new UserPhotoStorage(photoDirectory);
 const testJwtSecret = new TextEncoder().encode("test-only-jwt-secret-with-at-least-32-bytes");
 const accessTokenService = new AccessTokenService(testJwtSecret);
 const app = createApp(
-  new UserService(new SqliteUserRepository(database), accessTokenService),
+  new UserService(new SqliteUserRepository(database), accessTokenService, photoStorage),
   accessTokenService,
+  photoStorage,
 );
 let authToken: string;
+let registeredUserId: number;
+let registeredPhotoUrl: string;
+const tinyPng = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082",
+  "hex",
+);
+
+function registerWithPhoto(fields: { firstName: string; lastName: string; email: string; password: string }) {
+  return request(app)
+    .post("/user/register")
+    .field("firstName", fields.firstName)
+    .field("lastName", fields.lastName)
+    .field("email", fields.email)
+    .field("password", fields.password)
+    .attach("photos", tinyPng, { filename: "profile.png", contentType: "image/png" });
+}
 
 const api = {
   get: (path: string) => request(app).get(path).set("Authorization", `Bearer ${authToken}`),
@@ -38,7 +61,10 @@ before(async () => {
   authToken = await accessTokenService.issue({ id: 1, email: "alex@example.com" });
 });
 
-after(() => database.close());
+after(() => {
+  database.close();
+  rmSync(photoDirectory, { recursive: true, force: true });
+});
 
 describe("middleware d’authentification", () => {
   it("refuse l’accès sans jeton ou avec un jeton invalide", async () => {
@@ -70,6 +96,7 @@ describe("GET /user/get", () => {
       id: 1,
       name: "Alex Martin",
       email: "alex@example.com",
+      photos: [],
     });
   });
 
@@ -99,14 +126,14 @@ describe("GET /user/list", () => {
     assert.equal(firstPage.status, 200);
     assert.deepEqual(firstPage.body, {
       users: [
-        { id: 1, name: "Alex Martin", email: "alex@example.com" },
-        { id: 2, name: "Camille Durand", email: "camille@example.com" },
+        { id: 1, name: "Alex Martin", email: "alex@example.com", photos: [] },
+        { id: 2, name: "Camille Durand", email: "camille@example.com", photos: [] },
       ],
       pagination: { page: 1, limit: 2, total: 3, totalPages: 2 },
     });
     assert.equal(secondPage.status, 200);
     assert.deepEqual(secondPage.body, {
-      users: [{ id: 3, name: "Morgan Petit", email: "morgan@example.com" }],
+      users: [{ id: 3, name: "Morgan Petit", email: "morgan@example.com", photos: [] }],
       pagination: { page: 2, limit: 2, total: 3, totalPages: 2 },
     });
   });
@@ -149,7 +176,7 @@ describe("GET /user/search", () => {
 
     assert.equal(response.status, 200);
     assert.deepEqual(response.body, {
-      users: [{ id: 2, name: "Camille Durand", email: "camille@example.com" }],
+      users: [{ id: 2, name: "Camille Durand", email: "camille@example.com", photos: [] }],
       pagination: { page: 2, limit: 1, total: 3, totalPages: 3 },
     });
   });
@@ -185,9 +212,7 @@ describe("GET /user/search", () => {
 describe("POST /user/register", () => {
   it("crée un compte et ne renvoie ni ne stocke le mot de passe en clair", async () => {
     const password = "A memorable passphrase 2026!";
-    const response = await request(app)
-      .post("/user/register")
-      .send({
+    const response = await registerWithPhoto({
         firstName: "Élodie",
         lastName: "Moreau",
         email: "ELODIE.MOREAU@example.com",
@@ -211,7 +236,16 @@ describe("POST /user/register", () => {
     assert.equal(typeof response.body.user.id, "number");
     assert.equal(response.headers.location, `/user/get?id=${response.body.user.id}`);
     assert.deepEqual(Object.keys(response.body).sort(), ["accessToken", "expiresIn", "tokenType", "user"]);
-    assert.deepEqual(Object.keys(response.body.user).sort(), ["email", "id", "name"]);
+    assert.deepEqual(Object.keys(response.body.user).sort(), ["email", "id", "name", "photos"]);
+    assert.equal(response.body.user.photos.length, 1);
+    assert.match(response.body.user.photos[0], /^\/uploads\/users\/[\da-f-]+\.png$/u);
+    registeredUserId = response.body.user.id;
+    registeredPhotoUrl = response.body.user.photos[0];
+    const protectedPhoto = await request(app).get(response.body.user.photos[0]);
+    const loadedPhoto = await api.get(response.body.user.photos[0]);
+    assert.equal(protectedPhoto.status, 401);
+    assert.equal(loadedPhoto.status, 200);
+    assert.match(loadedPhoto.headers["content-type"], /^image\/png/u);
     assert.equal(response.body.tokenType, "Bearer");
     assert.equal(response.body.expiresIn, 900);
     assert.equal(payload.sub, String(response.body.user.id));
@@ -240,17 +274,41 @@ describe("POST /user/register", () => {
         email: "not-an-email",
         password: "A memorable passphrase 2026!",
       });
+    const missingPhoto = await request(app)
+      .post("/user/register")
+      .send({
+        firstName: "Alex",
+        lastName: "Martin",
+        email: "alex3@example.com",
+        password: "A memorable passphrase 2026!",
+      });
 
     assert.equal(shortPassword.status, 400);
     assert.equal(shortPassword.body.error.code, "INVALID_REGISTRATION_DATA");
     assert.equal(invalidEmail.status, 400);
     assert.equal(invalidEmail.body.error.code, "INVALID_REGISTRATION_DATA");
+    assert.equal(missingPhoto.status, 400);
+    assert.equal(missingPhoto.body.error.code, "INVALID_PHOTOS");
+  });
+
+  it("rejette les images dont le contenu ne correspond pas à un format autorisé", async () => {
+    const response = await request(app)
+      .post("/user/register")
+      .field("firstName", "Noah")
+      .field("lastName", "Image")
+      .field("email", "noah.image@example.com")
+      .field("password", "A memorable passphrase 2026!")
+      .attach("photos", Buffer.from("ceci n’est pas une image"), {
+        filename: "profile.png",
+        contentType: "image/png",
+      });
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, "INVALID_PHOTOS");
   });
 
   it("renvoie 409 si l’adresse email existe déjà", async () => {
-    const response = await request(app)
-      .post("/user/register")
-      .send({
+    const response = await registerWithPhoto({
         firstName: "Alex",
         lastName: "Autre",
         email: "ALEX@example.com",
@@ -279,8 +337,9 @@ describe("POST /user/login", () => {
       id: response.body.user.id,
       name: "Élodie Moreau",
       email: "elodie.moreau@example.com",
+      photos: response.body.user.photos,
     });
-    assert.deepEqual(Object.keys(response.body.user).sort(), ["email", "id", "name"]);
+    assert.deepEqual(Object.keys(response.body.user).sort(), ["email", "id", "name", "photos"]);
     assert.equal(protectedHeader.alg, "HS256");
     assert.equal(payload.sub, String(response.body.user.id));
     assert.equal(payload.email, "elodie.moreau@example.com");
@@ -323,6 +382,7 @@ describe("PUT /user/update", () => {
       id: 2,
       name: "Camille Martin",
       email: "camille.martin@example.com",
+      photos: [],
     });
   });
 
@@ -382,6 +442,14 @@ describe("DELETE /user/delete", () => {
     assert.equal(getResponse.body.error.code, "USER_NOT_FOUND");
   });
 
+  it("supprime aussi les photos associées au compte", async () => {
+    const response = await api.delete("/user/delete").query({ id: registeredUserId });
+    const fileName = registeredPhotoUrl.slice("/uploads/users/".length);
+
+    assert.equal(response.status, 204);
+    assert.equal(existsSync(join(photoDirectory, fileName)), false);
+  });
+
   it("renvoie 400 si l’identifiant est absent ou invalide", async () => {
     const missingId = await api.delete("/user/delete");
     const invalidId = await api.delete("/user/delete").query({ id: "abc" });
@@ -400,6 +468,20 @@ describe("DELETE /user/delete", () => {
   });
 });
 
+describe("GET /user/me", () => {
+  it("renvoie le profil rattaché au jeton", async () => {
+    const response = await api.get("/user/me");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, {
+      id: 1,
+      name: "Alex Martin",
+      email: "alex@example.com",
+      photos: [],
+    });
+  });
+});
+
 describe("PUT /user/me", () => {
   it("modifie le profil lié au jeton, sans utiliser un ID fourni par le client", async () => {
     const response = await api.put("/user/me").send({
@@ -414,11 +496,13 @@ describe("PUT /user/me", () => {
       id: 1,
       name: "Alex Authentifié",
       email: "alex.authentifie@example.com",
+      photos: [],
     });
     assert.deepEqual(otherUser.body, {
       id: 2,
       name: "Camille Martin",
       email: "camille.martin@example.com",
+      photos: [],
     });
   });
 

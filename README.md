@@ -1,8 +1,12 @@
-# Makeprops API
+# Makeprops
 
-API REST en Node.js, Express, TypeScript et SQLite.
+Application de gestion des utilisateurs composée d’une API Node.js/Express en TypeScript et d’un client React/TypeScript. SQLite sert de stockage local. La documentation OpenAPI est disponible avec Swagger UI.
 
-## Démarrer en développement
+## Démarrer en local
+
+Utilisez deux terminaux depuis la racine du dépôt.
+
+**Terminal 1 — API :**
 
 ```powershell
 npm install
@@ -10,125 +14,87 @@ npm run db:seed
 npm run dev
 ```
 
-Le serveur utilise le port `3000` et crée `data/app.sqlite` automatiquement. Les variables `PORT` et `DATABASE_PATH` peuvent être définies dans `.env` (voir `.env.example`). La commande `db:seed` ajoute un utilisateur de démonstration sans modifier une entrée déjà présente.
+L’API démarre sur `http://localhost:3000`. La base `data/app.sqlite` et le dossier de photos `data/uploads/users` sont créés automatiquement. Le seed fournit le compte de test `test@example.com` avec le mot de passe `Makeprops-Test-User-2026!`.
 
-Toutes les routes métier `/user` exigent un jeton Bearer, sauf `POST /user/register` et `POST /user/login`. `/health`, `/api-docs` et `/api-docs.json` restent publics.
-
-`npm run db:seed` crée aussi un compte de test local : `test@example.com` / `Makeprops-Test-User-2026!`. Le seed est désactivé lorsque `NODE_ENV=production`.
-
-## Récupérer un utilisateur
-
-```text
-GET http://localhost:3000/user/get?id=1
-```
-
-Exemple avec PowerShell :
+**Terminal 2 — React :**
 
 ```powershell
-Invoke-RestMethod -Headers $headers "http://localhost:3000/user/get?id=1"
+cd frontend
+npm install
+npm run dev
 ```
 
-La réponse `200` contient `id`, `name` et `email`. Une requête sans identifiant ou avec un identifiant invalide renvoie `400`; un identifiant valide sans utilisateur correspondant renvoie `404`.
+Ouvrez l’adresse affichée par Vite, généralement `http://localhost:5173`. Le serveur de développement transmet `/user`, `/health`, `/api-docs` et `/uploads` à l’API locale. Vous pouvez aussi ouvrir Swagger directement sur `http://localhost:3000/api-docs`.
 
-## Lister les utilisateurs
+## Fonctionnalités
+
+- Connexion et création de compte; le JWT est conservé dans `localStorage` et les pages de gestion sont protégées.
+- Annuaire avec recherche par nom, prénom ou email, pagination, états de chargement et messages d’erreur.
+- Modification d’un utilisateur, suppression avec confirmation et édition du profil connecté.
+- Inscription avec 1 à 5 photos JPEG, PNG ou WebP, limitées à 5 Mo chacune.
+- Les photos sont stockées sous des noms aléatoires dans `data/uploads/users` et leur téléchargement exige un jeton Bearer.
+- `/health`, `/api-docs` et `/api-docs.json` sont publics; les routes `/user` sont protégées sauf `POST /user/login` et `POST /user/register`.
+
+Le jeton d’accès expire après 15 minutes. Une nouvelle connexion est alors nécessaire.
+
+## Routes utilisateur
+
+| Méthode | Route | Fonction |
+| --- | --- | --- |
+| `POST` | `/user/register` | Création de compte en `multipart/form-data` |
+| `POST` | `/user/login` | Connexion et émission d’un JWT |
+| `GET` | `/user/list?page=1&limit=10` | Liste paginée |
+| `GET` | `/user/search?q=martin&page=1&limit=10` | Recherche paginée |
+| `GET` | `/user/get?id=1` | Détail utilisateur |
+| `PUT` | `/user/update?id=1` | Modification utilisateur |
+| `DELETE` | `/user/delete?id=1` | Suppression utilisateur et de ses photos |
+| `GET` | `/user/me` | Profil authentifié |
+| `PUT` | `/user/me` | Modification du profil authentifié |
+
+Les routes privées attendent `Authorization: Bearer <token>`. Les détails des schémas et réponses sont documentés dans Swagger UI.
+
+## Variables d’environnement
+
+L’API lit le fichier `.env` à la racine du dépôt (voir `.env.example`). `JWT_SECRET` doit contenir au moins 32 octets et être défini en production. En développement, en son absence, une clé temporaire est générée et les jetons sont invalidés au redémarrage. `PORT` vaut `3000` par défaut, `DATABASE_PATH` vaut `./data/app.sqlite` et `UPLOADS_DIR` vaut `./data/uploads/users`.
+
+Le client peut être configuré avec `frontend/.env.local` : `VITE_API_PROXY_TARGET` change la cible du proxy Vite; `VITE_API_URL` définit une URL de base pour le navigateur. Pour une API sur une autre origine, configurez aussi CORS côté serveur ou faites passer les deux applications par un même proxy.
+
+## Vérifications
+
+Depuis la racine :
 
 ```powershell
-Invoke-RestMethod -Headers $headers "http://localhost:3000/user/list?page=1&limit=10"
+npm run build
+npm test
 ```
 
-`page` commence à `1` et `limit` vaut `10` par défaut. La limite maximale est de `100` utilisateurs par page. La réponse contient `users` et `pagination` avec les champs `page`, `limit`, `total` et `totalPages`. Des paramètres invalides renvoient `400`.
-
-## Rechercher des utilisateurs
-
-La route cherche le terme `q` dans le nom complet (prénom et nom) et l’adresse email. La recherche ignore la casse et les accents, et reprend les mêmes paramètres de pagination que `/user/list` :
+Pour compiler le frontend :
 
 ```powershell
-Invoke-RestMethod -Headers $headers "http://localhost:3000/user/search?q=martin&page=1&limit=10"
+cd frontend
+npm run build
 ```
 
-Le paramètre `q` est obligatoire et doit contenir de 1 à 100 caractères. Un terme ou des paramètres de pagination invalides renvoient `400`.
-
-## Créer un compte
-
-```powershell
-$registration = Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:3000/user/register" `
-  -ContentType "application/json" `
-  -Body '{"firstName":"Alex","lastName":"Martin","email":"alex@example.com","password":"a memorable passphrase 2026!"}'
-
-$headers = @{ Authorization = "Bearer $($registration.accessToken)" }
-```
-
-Le mot de passe doit contenir entre 15 et 128 caractères. Il est stocké sous forme de hash Argon2id et n’apparaît jamais dans la réponse. Le prénom et le nom sont enregistrés séparément en base, tandis que l’API renvoie le champ `name` complet pour rester cohérente avec les autres routes. L’adresse email est normalisée en minuscules; une adresse déjà utilisée renvoie `409`. La réponse contient également un jeton JWT Bearer valable 15 minutes, comme la route de connexion.
-
-## Se connecter
-
-```powershell
-$login = Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:3000/user/login" `
-  -ContentType "application/json" `
-  -Body '{"email":"alex@example.com","password":"a memorable passphrase 2026!"}'
-
-$headers = @{ Authorization = "Bearer $($login.accessToken)" }
-```
-
-La réponse contient le profil sans hash et un jeton d’accès JWT `Bearer` valable 15 minutes. Si l’email n’existe pas ou si le mot de passe est faux, l’API renvoie dans les deux cas `401` avec le même message.
-
-La route limite les tentatives à 10 par adresse IP sur une période de 15 minutes; au-delà, elle renvoie `429`.
-
-`JWT_SECRET` doit contenir au moins 32 octets et être défini en production. En développement, s’il est absent, le serveur génère une clé temporaire : les jetons émis deviennent invalides au prochain redémarrage. Pour créer une clé locale dans PowerShell :
-
-```powershell
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-```
-
-Copie la valeur affichée dans `.env` sous la forme `JWT_SECRET=<valeur>`.
-
-## Modifier un utilisateur
-
-`PUT /user/update` utilise le même identifiant en query string. Les champs `name` et `email` sont requis dans le corps JSON :
-
-```powershell
-Invoke-RestMethod `
-  -Method Put `
-  -Uri "http://localhost:3000/user/me" `
-  -Headers $headers `
-  -ContentType "application/json" `
-  -Body '{"name":"Alex Martin","email":"alex.martin@example.com"}'
-```
-
-`PUT /user/me` met à jour le compte lié au jeton et renvoie le profil modifié. Les routes avec un identifiant explicite restent disponibles aux utilisateurs authentifiés. Les données invalides renvoient `400`; une adresse email déjà utilisée renvoie `409`.
-
-## Supprimer un utilisateur
-
-```powershell
-Invoke-RestMethod -Method Delete -Headers $headers -Uri "http://localhost:3000/user/delete?id=1"
-```
-
-La réponse `204` confirme la suppression sans renvoyer de contenu. La route renvoie `400` si l’identifiant est invalide et `404` si l’utilisateur n’existe pas.
-
-## Documentation et tests
-
-- Swagger UI : `http://localhost:3000/api-docs`
-- Spécification OpenAPI JSON : `http://localhost:3000/api-docs.json`
-- Tests d’intégration : `npm test`
-- Vérification TypeScript : `npm run build`
-
-## Structure
+## Architecture
 
 ```text
 src/
-  domain/                  # Modèles du domaine
-  docs/                    # Spécification OpenAPI
-  errors/                  # Erreurs applicatives
-  infrastructure/sqlite/   # Connexion SQLite et dépôt utilisateur
-  middleware/              # Middleware Express partagé
-  routes/                  # Définition des routes HTTP
-  scripts/                 # Commandes locales de démonstration
-  users/                   # Service et contrat de dépôt utilisateur
-  app.ts                   # Assemblage de l’application Express
-  server.ts                # Démarrage du serveur
-tests/                     # Tests d’intégration HTTP
+  app.ts                         # Assemblage Express
+  auth/                          # JWT, vérification et mots de passe
+  docs/openapi.ts                # Contrat OpenAPI pour Swagger UI
+  domain/                        # Modèle utilisateur et erreurs métier
+  infrastructure/
+    fileSystem/                  # Stockage contrôlé des photos
+    sqlite/                      # Connexion, migration et repository SQLite
+  middleware/                    # Authentification, upload et erreurs HTTP
+  routes/users.ts                # Adaptation HTTP des routes utilisateur
+  users/                         # Services et validation métier
+  server.ts                      # Configuration et démarrage
+tests/                           # Tests d’intégration API et migration
+frontend/src/
+  app/                           # Routes et shell de l’application
+  features/auth/                 # Contexte, login et inscription
+  features/users/                # Annuaire, profil, édition et images privées
+  lib/api/                       # Client HTTP centralisé
+  types/                         # Contrats du frontend
 ```

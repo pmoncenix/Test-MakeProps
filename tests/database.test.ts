@@ -33,6 +33,7 @@ describe("migration de la table users", () => {
         assert.ok(columns.some((column) => column.name === "first_name"));
         assert.ok(columns.some((column) => column.name === "last_name"));
         assert.ok(columns.some((column) => column.name === "password_hash"));
+        assert.ok(columns.some((column) => column.name === "photos_json"));
         assert.deepEqual(existingUser, {
           id: 1,
           name: "Alex Martin",

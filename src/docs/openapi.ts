@@ -36,11 +36,12 @@ export const openApiDocument = {
               "application/json": {
                 schema: {
                   type: "object",
-                  required: ["id", "name", "email"],
+                  required: ["id", "name", "email", "photos"],
                   properties: {
                     id: { type: "integer", example: 1 },
                     name: { type: "string", example: "Alex Martin" },
                     email: { type: "string", format: "email", example: "alex@example.com" },
+                    photos: { type: "array", items: { type: "string", format: "uri-reference" }, example: ["/uploads/users/9ba2b01e-92e9-4d0f-9ccf-df32a8d31ac9.png"] },
                   },
                 },
               },
@@ -92,11 +93,12 @@ export const openApiDocument = {
                       type: "array",
                       items: {
                         type: "object",
-                        required: ["id", "name", "email"],
+                        required: ["id", "name", "email", "photos"],
                         properties: {
                           id: { type: "integer", example: 1 },
                           name: { type: "string", example: "Alex Martin" },
                           email: { type: "string", format: "email", example: "alex@example.com" },
+                          photos: { type: "array", items: { type: "string", format: "uri-reference" } },
                         },
                       },
                     },
@@ -161,11 +163,12 @@ export const openApiDocument = {
                       type: "array",
                       items: {
                         type: "object",
-                        required: ["id", "name", "email"],
+                        required: ["id", "name", "email", "photos"],
                         properties: {
                           id: { type: "integer" },
                           name: { type: "string" },
                           email: { type: "string", format: "email" },
+                          photos: { type: "array", items: { type: "string", format: "uri-reference" } },
                         },
                       },
                     },
@@ -198,10 +201,10 @@ export const openApiDocument = {
         requestBody: {
           required: true,
           content: {
-            "application/json": {
+            "multipart/form-data": {
               schema: {
                 type: "object",
-                required: ["firstName", "lastName", "email", "password"],
+                required: ["firstName", "lastName", "email", "password", "photos"],
                 properties: {
                   firstName: { type: "string", minLength: 1, maxLength: 100, example: "Alex" },
                   lastName: { type: "string", minLength: 1, maxLength: 100, example: "Martin" },
@@ -213,6 +216,13 @@ export const openApiDocument = {
                     maxLength: 128,
                     writeOnly: true,
                     example: "a long memorable passphrase",
+                  },
+                  photos: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 5,
+                    items: { type: "string", format: "binary" },
+                    description: "Images JPEG, PNG ou WebP, 5 Mo maximum par image.",
                   },
                 },
               },
@@ -239,11 +249,12 @@ export const openApiDocument = {
                     expiresIn: { type: "integer", example: 900 },
                     user: {
                       type: "object",
-                      required: ["id", "name", "email"],
+                      required: ["id", "name", "email", "photos"],
                       properties: {
                         id: { type: "integer", example: 1 },
                         name: { type: "string", example: "Alex Martin" },
                         email: { type: "string", format: "email", example: "alex@example.com" },
+                        photos: { type: "array", items: { type: "string", format: "uri-reference" } },
                       },
                     },
                   },
@@ -252,6 +263,7 @@ export const openApiDocument = {
             },
           },
           "400": { description: "Données d’inscription invalides." },
+          "413": { description: "Une des images dépasse la limite de 5 Mo." },
           "409": { description: "Une adresse email identique est déjà enregistrée." },
           "500": { description: "Erreur interne du serveur." },
         },
@@ -297,11 +309,12 @@ export const openApiDocument = {
                     expiresIn: { type: "integer", example: 900 },
                     user: {
                       type: "object",
-                      required: ["id", "name", "email"],
+                      required: ["id", "name", "email", "photos"],
                       properties: {
                         id: { type: "integer", example: 1 },
                         name: { type: "string", example: "Alex Martin" },
                         email: { type: "string", format: "email", example: "alex@example.com" },
+                        photos: { type: "array", items: { type: "string", format: "uri-reference" } },
                       },
                     },
                   },
@@ -317,6 +330,32 @@ export const openApiDocument = {
       },
     },
     "/user/me": {
+      get: {
+        summary: "Récupérer le profil de l’utilisateur authentifié",
+        tags: ["Users"],
+        responses: {
+          "200": {
+            description: "Profil de l’utilisateur connecté.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["id", "name", "email", "photos"],
+                  properties: {
+                    id: { type: "integer", example: 1 },
+                    name: { type: "string", example: "Alex Martin" },
+                    email: { type: "string", format: "email", example: "alex@example.com" },
+                    photos: { type: "array", items: { type: "string", format: "uri-reference" } },
+                  },
+                },
+              },
+            },
+          },
+          "401": { description: "Jeton absent, invalide ou expiré." },
+          "404": { description: "Le compte associé au jeton n’existe plus." },
+          "500": { description: "Erreur interne du serveur." },
+        },
+      },
       put: {
         summary: "Modifier le profil de l’utilisateur authentifié",
         tags: ["Users"],
@@ -342,11 +381,12 @@ export const openApiDocument = {
               "application/json": {
                 schema: {
                   type: "object",
-                  required: ["id", "name", "email"],
+                  required: ["id", "name", "email", "photos"],
                   properties: {
                     id: { type: "integer", example: 1 },
                     name: { type: "string", example: "Alex Martin" },
                     email: { type: "string", format: "email", example: "alex@example.com" },
+                    photos: { type: "array", items: { type: "string", format: "uri-reference" } },
                   },
                 },
               },
@@ -394,11 +434,12 @@ export const openApiDocument = {
               "application/json": {
                 schema: {
                   type: "object",
-                  required: ["id", "name", "email"],
+                  required: ["id", "name", "email", "photos"],
                   properties: {
                     id: { type: "integer", example: 1 },
                     name: { type: "string", example: "Alex Martin" },
                     email: { type: "string", format: "email", example: "alex@example.com" },
+                    photos: { type: "array", items: { type: "string", format: "uri-reference" } },
                   },
                 },
               },

@@ -23,7 +23,8 @@ export function openDatabase(databasePath: string): Database.Database {
       email TEXT NOT NULL UNIQUE,
       first_name TEXT,
       last_name TEXT,
-      password_hash TEXT
+      password_hash TEXT,
+      photos_json TEXT NOT NULL DEFAULT '[]'
     );
   `);
 
@@ -33,6 +34,10 @@ export function openDatabase(databasePath: string): Database.Database {
     if (!existingColumns.has(column)) {
       database.exec(`ALTER TABLE users ADD COLUMN ${column} TEXT`);
     }
+  }
+
+  if (!existingColumns.has("photos_json")) {
+    database.exec("ALTER TABLE users ADD COLUMN photos_json TEXT NOT NULL DEFAULT '[]'");
   }
 
   return database;

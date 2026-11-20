@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { rateLimit } from "express-rate-limit";
 import type { AuthenticatedRequest } from "../auth/authenticationMiddleware.js";
+import { uploadUserPhotos } from "../middleware/uploadUserPhotos.js";
 import type { UserService } from "../users/userService.js";
 
 const loginRateLimiter = rateLimit({
@@ -21,8 +22,10 @@ const loginRateLimiter = rateLimit({
 export function createUsersRouter(userService: UserService): Router {
   const router = Router();
 
-  router.post("/register", async (request, response) => {
-    const result = await userService.register(request.body);
+  router.post("/register", uploadUserPhotos, async (request, response) => {
+    const files = Array.isArray(request.files) ? request.files : [];
+    const photos = files.map((file) => ({ mimeType: file.mimetype, data: file.buffer }));
+    const result = await userService.register(request.body, photos);
     response
       .status(201)
       .location(`/user/get?id=${result.user.id}`)
@@ -49,6 +52,11 @@ export function createUsersRouter(userService: UserService): Router {
     response.status(200).json(result);
   });
 
+  router.get("/me", (request, response) => {
+    const { userId } = (request as AuthenticatedRequest).auth;
+    response.status(200).json(userService.getAuthenticatedUser(userId));
+  });
+
   router.put("/me", (request, response) => {
     const { userId } = (request as AuthenticatedRequest).auth;
     const user = userService.updateAuthenticatedUser(userId, request.body);
@@ -60,8 +68,8 @@ export function createUsersRouter(userService: UserService): Router {
     response.status(200).json(user);
   });
 
-  router.delete("/delete", (request, response) => {
-    userService.deleteById(request.query.id);
+  router.delete("/delete", async (request, response) => {
+    await userService.deleteById(request.query.id);
     response.status(204).send();
   });
 

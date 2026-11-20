@@ -2,6 +2,7 @@ export interface User {
   id: number;
   name: string;
   email: string;
+  photos: string[];
 }
 
 export interface UserUpdate extends Pick<User, "name" | "email"> {
@@ -19,6 +20,7 @@ export interface NewUser {
   lastName: string;
   email: string;
   passwordHash: string;
+  photos: string[];
 }
 
 export interface UserCredential extends User {

@@ -1,6 +1,8 @@
 import "dotenv/config";
+import { resolve } from "node:path";
 import { createAccessTokenService } from "./auth/createAccessTokenService.js";
 import { createApp } from "./app.js";
+import { UserPhotoStorage } from "./infrastructure/fileSystem/UserPhotoStorage.js";
 import { openDatabase } from "./infrastructure/sqlite/database.js";
 import { SqliteUserRepository } from "./infrastructure/sqlite/SqliteUserRepository.js";
 import { UserService } from "./users/userService.js";
@@ -11,13 +13,15 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const databasePath = process.env.DATABASE_PATH ?? "./data/app.sqlite";
+const photoStorage = new UserPhotoStorage(resolve(process.env.UPLOADS_DIR ?? "./data/uploads/users"));
 const accessTokenService = createAccessTokenService();
 const database = openDatabase(databasePath);
 const userService = new UserService(
   new SqliteUserRepository(database),
   accessTokenService,
+  photoStorage,
 );
-const app = createApp(userService, accessTokenService);
+const app = createApp(userService, accessTokenService, photoStorage);
 const server = app.listen(port, () => {
   console.log(`API Makeprops disponible sur http://localhost:${port}`);
   console.log(`Documentation Swagger : http://localhost:${port}/api-docs`);

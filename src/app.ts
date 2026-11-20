@@ -6,8 +6,13 @@ import { openApiDocument } from "./docs/openapi.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createUsersRouter } from "./routes/users.js";
 import type { UserService } from "./users/userService.js";
+import type { UserPhotoStorage } from "./infrastructure/fileSystem/UserPhotoStorage.js";
 
-export function createApp(userService: UserService, accessTokenService: AccessTokenService): Express {
+export function createApp(
+  userService: UserService,
+  accessTokenService: AccessTokenService,
+  photoStorage: UserPhotoStorage,
+): Express {
   const app = express();
 
   app.use(express.json());
@@ -16,6 +21,12 @@ export function createApp(userService: UserService, accessTokenService: AccessTo
   app.get("/health", (_request, response) => response.status(200).json({ status: "ok" }));
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.get("/api-docs.json", (_request, response) => response.status(200).json(openApiDocument));
+  app.use("/uploads/users", express.static(photoStorage.directory, {
+    dotfiles: "deny",
+    index: false,
+    immutable: true,
+    maxAge: "1d",
+  }));
   app.use(errorHandler);
 
   return app;

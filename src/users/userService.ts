@@ -2,17 +2,21 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   AccessTokenService,
 } from "../auth/AccessTokenService.js";
+import type { UserPhotoStorage } from "../infrastructure/fileSystem/UserPhotoStorage.js";
 import type { AuthenticationResult } from "../auth/AuthenticationResult.js";
 import { hashPassword, performDummyPasswordWork, verifyPassword } from "../auth/passwordService.js";
 import { AppError } from "../errors/AppError.js";
 import { UserEmailAlreadyInUseError } from "../domain/errors/UserEmailAlreadyInUseError.js";
 import type { NewUser, User, UserUpdate } from "../domain/user.js";
+import { validatePhotoUploads } from "./photoUpload.js";
+import type { PhotoUpload } from "./photoUpload.js";
 import type { UserRepository } from "./userRepository.js";
 
 export class UserService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly accessTokenService: AccessTokenService,
+    private readonly photoStorage: UserPhotoStorage,
   ) {}
 
   getById(rawId: unknown): User {
@@ -22,6 +26,14 @@ export class UserService {
     if (!user) throw userNotFoundError(id);
 
     return user;
+  }
+
+  getAuthenticatedUser(userId: number): User {
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      throw new AppError(401, "AUTHENTICATION_REQUIRED", "Un jeton Bearer valide est requis.");
+    }
+
+    return this.getById(String(userId));
   }
 
   list(rawPage: unknown, rawLimit: unknown): {
@@ -39,21 +51,28 @@ export class UserService {
     return toPaginatedResponse(this.userRepository.findPage(page, limit), page, limit);
   }
 
-  async register(rawInput: unknown): Promise<AuthenticationResult> {
+  async register(rawInput: unknown, photos: readonly PhotoUpload[]): Promise<AuthenticationResult> {
     const input = parseRegistrationInput(rawInput);
+    validatePhotoUploads(photos);
     const passwordHash = await hashPassword(input.password);
+    const photoUrls = await this.photoStorage.store(photos);
 
     const newUser: NewUser = {
       firstName: input.firstName,
       lastName: input.lastName,
       email: input.email,
       passwordHash,
+      photos: photoUrls,
     };
 
     let user: User;
     try {
       user = this.userRepository.create(newUser);
     } catch (error) {
+      await this.photoStorage.remove(photoUrls).catch((cleanupError: unknown) => {
+        console.error("Impossible de nettoyer les photos après l’échec de l’inscription :", cleanupError);
+      });
+
       if (error instanceof UserEmailAlreadyInUseError) {
         throw new AppError(409, "EMAIL_ALREADY_IN_USE", error.message);
       }
@@ -89,6 +108,7 @@ export class UserService {
       id: credentials.id,
       name: credentials.name,
       email: credentials.email,
+      photos: credentials.photos,
     });
   }
 
@@ -147,10 +167,16 @@ export class UserService {
     }
   }
 
-  deleteById(rawId: unknown): void {
+  async deleteById(rawId: unknown): Promise<void> {
     const id = parseId(rawId);
+    const user = this.userRepository.findById(id);
+    if (!user) throw userNotFoundError(id);
+
     const deleted = this.userRepository.deleteById(id);
     if (!deleted) throw userNotFoundError(id);
+    await this.photoStorage.remove(user.photos).catch((error: unknown) => {
+      console.error("Impossible de nettoyer les photos après la suppression de l’utilisateur :", error);
+    });
   }
 }
 

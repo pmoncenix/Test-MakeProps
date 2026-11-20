@@ -7,6 +7,11 @@ interface UserRow {
   id: number;
   name: string;
   email: string;
+  photosJson: string;
+}
+
+interface UserCredentialRow extends UserRow {
+  passwordHash: string | null;
 }
 
 export class SqliteUserRepository implements UserRepository {
@@ -14,41 +19,41 @@ export class SqliteUserRepository implements UserRepository {
 
   findById(id: number): User | null {
     const row = this.database
-      .prepare("SELECT id, name, email FROM users WHERE id = ?")
+      .prepare("SELECT id, name, email, photos_json AS photosJson FROM users WHERE id = ?")
       .get(id) as UserRow | undefined;
 
-    return row ?? null;
+    return row ? mapUserRow(row) : null;
   }
 
   findByEmail(email: string): UserCredential | null {
     const row = this.database
       .prepare(`
-        SELECT id, name, email, password_hash AS passwordHash
+        SELECT id, name, email, photos_json AS photosJson, password_hash AS passwordHash
         FROM users
         WHERE lower(email) = lower(?)
       `)
-      .get(email) as UserCredential | undefined;
+      .get(email) as UserCredentialRow | undefined;
 
-    return row ?? null;
+    return row ? { ...mapUserRow(row), passwordHash: row.passwordHash } : null;
   }
 
   findPage(page: number, limit: number): UserPage {
     const offset = (page - 1) * limit;
     const users = this.database
-      .prepare("SELECT id, name, email FROM users ORDER BY id ASC LIMIT ? OFFSET ?")
+      .prepare("SELECT id, name, email, photos_json AS photosJson FROM users ORDER BY id ASC LIMIT ? OFFSET ?")
       .all(limit, offset) as UserRow[];
     const { total } = this.database
       .prepare("SELECT COUNT(*) AS total FROM users")
       .get() as { total: number };
 
-    return { users, total };
+    return { users: users.map(mapUserRow), total };
   }
 
   searchPage(query: string, page: number, limit: number): UserPage {
     const pattern = `%${escapeLikePattern(query)}%`;
     const users = this.database
       .prepare(`
-        SELECT id, name, email
+        SELECT id, name, email, photos_json AS photosJson
         FROM users
         WHERE normalize_for_search(name) LIKE normalize_for_search(?) ESCAPE '!'
           OR normalize_for_search(email) LIKE normalize_for_search(?) ESCAPE '!'
@@ -65,22 +70,30 @@ export class SqliteUserRepository implements UserRepository {
       `)
       .get(pattern, pattern) as { total: number };
 
-    return { users, total };
+    return { users: users.map(mapUserRow), total };
   }
 
   create(user: NewUser): User {
     try {
       const result = this.database
         .prepare(`
-          INSERT INTO users (name, first_name, last_name, email, password_hash)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO users (name, first_name, last_name, email, password_hash, photos_json)
+          VALUES (?, ?, ?, ?, ?, ?)
         `)
-        .run(`${user.firstName} ${user.lastName}`, user.firstName, user.lastName, user.email, user.passwordHash);
+        .run(
+          `${user.firstName} ${user.lastName}`,
+          user.firstName,
+          user.lastName,
+          user.email,
+          user.passwordHash,
+          JSON.stringify(user.photos),
+        );
 
       return {
         id: Number(result.lastInsertRowid),
         name: `${user.firstName} ${user.lastName}`,
         email: user.email,
+        photos: user.photos,
       };
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -118,6 +131,22 @@ export class SqliteUserRepository implements UserRepository {
 
     return result.changes > 0;
   }
+}
+
+function mapUserRow(row: UserRow): User {
+  let photos: unknown;
+  try {
+    photos = JSON.parse(row.photosJson);
+  } catch {
+    photos = [];
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    photos: Array.isArray(photos) && photos.every((photo) => typeof photo === "string") ? photos : [],
+  };
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
